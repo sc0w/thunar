@@ -87,6 +87,7 @@ enum
   ZOOM_OUT,
   ZOOM_RESET,
   TAB_CHANGE,
+  TAB_PREV_NEXT,
   LAST_SIGNAL,
 };
 
@@ -114,6 +115,8 @@ static gboolean thunar_window_zoom_out                    (ThunarWindow         
 static gboolean thunar_window_zoom_reset                  (ThunarWindow           *window);
 static gboolean thunar_window_tab_change                  (ThunarWindow           *window,
                                                            gint                    nth);
+static gboolean thunar_window_tab_prev_next               (ThunarWindow           *window,
+                                                           gboolean                forward);
 static void     thunar_window_realize                     (GtkWidget              *widget);
 static void     thunar_window_unrealize                   (GtkWidget              *widget);
 static gboolean thunar_window_configure_event             (GtkWidget              *widget,
@@ -168,6 +171,10 @@ static void     thunar_window_action_close_window         (GtkAction            
 static void     thunar_window_action_preferences          (GtkAction              *action,
                                                            ThunarWindow           *window);
 static void     thunar_window_action_reload               (GtkAction              *action,
+                                                           ThunarWindow           *window);
+static void     switch_next_tab                           (GtkAction              *action,
+                                                           ThunarWindow           *window);
+static void     switch_previous_tab                       (GtkAction              *action,
                                                            ThunarWindow           *window);
 static void     thunar_window_action_pathbar_changed      (GtkToggleAction        *action,
                                                            ThunarWindow           *window);
@@ -266,6 +273,8 @@ struct _ThunarWindowClass
   gboolean (*zoom_reset)      (ThunarWindow *window);
   gboolean (*tab_change)      (ThunarWindow *window,
                                gint          idx);
+  gboolean (*tab_prev_next)   (ThunarWindow *window,
+                               gboolean      forward);
 };
 
 struct _ThunarWindow
@@ -352,6 +361,8 @@ static GtkActionEntry action_entries[] =
   { "sendto-menu", NULL, N_ ("_Send To"), NULL, },
   { "empty-trash", NULL, N_ ("_Empty Trash"), NULL, N_ ("Delete all files and folders in the Trash"), G_CALLBACK (thunar_window_action_empty_trash), },
   { "detach-tab", NULL, N_ ("Detac_h Tab"), NULL, N_ ("Open current folder in a new window"), G_CALLBACK (thunar_window_action_detach_tab), },
+  { "switch-next-tab", NULL, NULL, "<control>Page_Down", NULL, G_CALLBACK (switch_next_tab), },
+  { "switch-previous-tab", NULL, NULL, "<control>Page_Up", NULL, G_CALLBACK (switch_previous_tab), },
   { "close-all-windows", NULL, N_ ("Close _All Windows"), "<control><shift>W", N_ ("Close all Thunar windows"), G_CALLBACK (thunar_window_action_close_all_windows), },
   { "close-tab", "window-close", N_ ("C_lose Tab"), "<control>W", N_ ("Close this folder"), G_CALLBACK (thunar_window_action_close_tab), },
   { "close-window", "application-exit", N_ ("_Close Window"), "<control>Q", N_ ("Close this window"), G_CALLBACK (thunar_window_action_close_window), },
@@ -426,6 +437,7 @@ thunar_window_class_init (ThunarWindowClass *klass)
   klass->zoom_out = thunar_window_zoom_out;
   klass->zoom_reset = thunar_window_zoom_reset;
   klass->tab_change = thunar_window_tab_change;
+  klass->tab_prev_next = thunar_window_tab_prev_next;
 
   /**
    * ThunarWindow:current-directory:
@@ -618,6 +630,23 @@ thunar_window_class_init (ThunarWindowClass *klass)
                   _thunar_marshal_BOOLEAN__INT,
                   G_TYPE_BOOLEAN, 1,
                   G_TYPE_INT);
+
+  /**
+   * ThunarWindow::tab-prev-next:
+   * @window    :  a #ThunarWindow instance.
+   *
+   * Emitted whenever the user uses a Ctrl + RePag/AvPag combination to
+   * switch tabs.
+   **/
+  window_signals[TAB_PREV_NEXT] =
+    g_signal_new (I_("tab-prev-next"),
+                  G_TYPE_FROM_CLASS (klass),
+                  G_SIGNAL_RUN_LAST | G_SIGNAL_ACTION,
+                  G_STRUCT_OFFSET (ThunarWindowClass, tab_prev_next),
+                  g_signal_accumulator_true_handled, NULL,
+                  _thunar_marshal_BOOLEAN__BOOLEAN,
+                  G_TYPE_BOOLEAN, 1,
+                  G_TYPE_BOOLEAN);
 
   /* setup the key bindings for the windows */
   binding_set = gtk_binding_set_by_class (klass);
@@ -1325,6 +1354,53 @@ thunar_window_tab_change (ThunarWindow *window,
                                  nth == -1 ? 9 : nth);
 
   return TRUE;
+}
+
+
+
+static gboolean
+thunar_window_tab_prev_next (ThunarWindow *window,
+                             gboolean      forward)
+{
+  gint current_page_idx;
+  gint new_page_idx;
+
+  _thunar_return_val_if_fail (THUNAR_IS_WINDOW (window), FALSE);
+
+  current_page_idx = gtk_notebook_get_current_page (GTK_NOTEBOOK (window->notebook));
+  new_page_idx = (current_page_idx + (forward ? 1 : -1) )
+                 % gtk_notebook_get_n_pages (GTK_NOTEBOOK (window->notebook));
+  gtk_notebook_set_current_page (GTK_NOTEBOOK (window->notebook), new_page_idx);
+
+  return TRUE;
+}
+
+
+
+static void
+switch_next_tab (GtkAction    *action,
+                 ThunarWindow *window)
+{
+  gboolean result;
+
+  _thunar_return_if_fail (GTK_IS_ACTION (action));
+  _thunar_return_if_fail (THUNAR_IS_WINDOW (window));
+
+  g_signal_emit (G_OBJECT (window), window_signals[TAB_PREV_NEXT], 0, TRUE, &result);
+}
+
+
+
+static void
+switch_previous_tab (GtkAction    *action,
+                     ThunarWindow *window)
+{
+  gboolean result;
+
+  _thunar_return_if_fail (GTK_IS_ACTION (action));
+  _thunar_return_if_fail (THUNAR_IS_WINDOW (window));
+
+  g_signal_emit (G_OBJECT (window), window_signals[TAB_PREV_NEXT], 0, FALSE, &result);
 }
 
 
